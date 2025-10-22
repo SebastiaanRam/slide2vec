@@ -88,6 +88,15 @@ def main(args):
     wsi_paths_to_process = [Path(x) for x in process_stack.wsi_path.values.tolist()]
 
     features_dir = Path(cfg.output_dir, "features")
+    aggregated_dir = Path(cfg.output_dir, "aggregated")
+    aggregated_dir.mkdir(exist_ok=True, parents=True)
+    latents_dir = None
+    
+    # Create latents directory if return_latents is enabled
+    return_latents = cfg.model.return_latents
+    if return_latents:
+        latents_dir = Path(cfg.output_dir, "latents")
+        latents_dir.mkdir(exist_ok=True, parents=True)
 
     autocast_context = (
         torch.autocast(device_type="cuda", dtype=torch.float16)
@@ -111,6 +120,7 @@ def main(args):
             coordinates = (np.array([coordinates_arr["x"], coordinates_arr["y"]]).T).astype(int)
 
             feature_path = features_dir / f"{name}.pt"
+            aggregated_path = aggregated_dir / f"{name}.pt"  # NEW: different path
 
             # run forward pass with slide encoder
             if cfg.model.name == "prov-gigapath":
@@ -138,7 +148,18 @@ def main(args):
                         tile_size_lv0=tile_size_lv0,
                     )
 
-            torch.save(wsi_feature, feature_path)
+            # Handle the case where model returns both embeddings and latents
+            if return_latents and isinstance(wsi_feature, dict):
+                # Save image_embedding to aggregated directory (CHANGED)
+                torch.save(wsi_feature["image_embedding"], aggregated_path)
+                
+                # Save image_latents to latents directory
+                latents_path = latents_dir / f"{name}.pt"
+                torch.save(wsi_feature["image_latents"], latents_path)
+            else:
+                # Save aggregated feature to aggregated directory (CHANGED)
+                torch.save(wsi_feature, aggregated_path)
+            
             del wsi_feature
             if not run_on_cpu:
                 torch.cuda.empty_cache()
